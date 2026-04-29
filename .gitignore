@@ -1,0 +1,6 @@
+# Directories
+.claude/
+MEMORY/
+
+# Config files
+config.py
