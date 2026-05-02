@@ -43,9 +43,10 @@ class NarrativeEngine:
         self.state = StoryState()
 
     def advance(self, stages: int = 1) -> str:
+        current = self.state.current_stage
+        if current not in self.state.completed_stages:
+            self.state.completed_stages.append(current)
         self.state.stage_index = min(self.state.stage_index + stages, len(NARRATIVE_STAGES))
-        if self.state.current_stage not in self.state.completed_stages:
-            self.state.completed_stages.append(self.state.current_stage)
         return self.state.current_stage
 
     def get_required_beats(self, chapter: int, total_chapters: int) -> list[str]:
