@@ -16,6 +16,10 @@ backend/.env
 backend/data/
 !backend/data/.gitkeep
 
+# PAI work tracking (never commit)
+MEMORY/
+.claude/
+
 # Frontend
 node_modules/
 frontend/dist/
