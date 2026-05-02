@@ -70,7 +70,19 @@ python -m app.cli dsl "@title and @type:character"
 | `governance/` | ControlPlane + WordBudget |
 | `api/` | FastAPI REST endpoints |
 
-## Frontend
+## Web UI (Streamlit — No Build Needed)
+
+```bash
+cd backend
+pip install streamlit
+streamlit run app/ui.py
+```
+
+9-tab dashboard at **http://localhost:8501** — Story Setup, Audit, De-AI, Validate, Quality, Narrative, DSL, Providers, State.
+
+No API server, no frontend build, no separate process needed.
+
+## React Frontend
 
 ```bash
 cd frontend
