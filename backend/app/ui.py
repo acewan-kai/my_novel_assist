@@ -21,12 +21,25 @@ from app.llm.provider_bank import PROVIDER_BANK
 st.title("📖 My Novel Assist")
 st.caption("AI 辅助小说写作工具 —— 从灵感到成稿的全流程支持")
 
-tab_names = ["📐 故事设定", "🔍 质量审核", "🤖 去 AI 检测", "✅ 后写作校验",
-             "📊 质量指标", "📈 叙事引擎", "🔤 DSL 解析", "🏪 LLM 提供商", "📝 状态追踪"]
+# 工作流顺序：设定 → 规划 → 写作 → 审核 → 修改 → 发布
+tab_names = [
+    "📐 故事设定",     # 0: premise + characters
+    "📈 叙事规划",     # 1: narrative engine (was tab 6)
+    "✍️ 生成章节",     # 2: NEW — call API to generate
+    "🔍 质量审核",     # 3: 33-dim audit (was tab 2)
+    "🤖 去 AI 检测",   # 4: de-ai (was tab 3)
+    "✅ 后写作校验",   # 5: validate (was tab 4)
+    "📊 质量指标",     # 6: quality (was tab 5)
+    "🔤 DSL 解析",     # 7: dsl (was tab 7)
+    "🏪 LLM 提供商",   # 8: providers (was tab 8)
+    "📝 状态追踪",     # 9: state (was tab 9)
+]
 tabs = st.tabs(tab_names)
 
 
-# ── Tab 1：故事设定 ────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════
+# Tab 1：故事设定 — 前提验证 + 角色管理
+# ═══════════════════════════════════════════════════════════
 with tabs[0]:
     st.subheader("故事前提验证")
 
@@ -52,11 +65,9 @@ with tabs[0]:
     st.divider()
     st.subheader("角色管理")
 
-    # 初始化角色列表
     if "characters" not in st.session_state:
         st.session_state.characters = []
 
-    # 添加角色表单
     with st.container(border=True):
         st.caption("添加新角色")
         c1, c2, c3 = st.columns(3)
@@ -80,11 +91,8 @@ with tabs[0]:
             else:
                 st.error("角色名称不能为空")
 
-    # 显示已添加的角色
     if st.session_state.characters:
         st.caption(f"已添加 {len(st.session_state.characters)} 个角色")
-
-        # 表格展示
         char_data = []
         for i, c in enumerate(st.session_state.characters):
             char_data.append({
@@ -95,7 +103,6 @@ with tabs[0]:
             })
         st.dataframe(char_data, use_container_width=True, hide_index=True)
 
-        # 批量验证
         if st.button("验证所有角色 Schema", use_container_width=True):
             sr = SchemaRegistry()
             all_ok = True
@@ -110,7 +117,6 @@ with tabs[0]:
             if all_ok:
                 st.success("全部角色 Schema 验证通过")
 
-        # 删除角色
         with st.expander("删除角色"):
             del_names = [c["name"] for c in st.session_state.characters]
             to_del = st.multiselect("选择要删除的角色", del_names)
@@ -123,8 +129,157 @@ with tabs[0]:
         st.info("尚未添加任何角色，请在上方表单中添加")
 
 
-# ── Tab 2：33 维质量审核 ─────────────────────────────────────
+# ═══════════════════════════════════════════════════════════
+# Tab 2：叙事规划 — Dramatica 16 阶段 + 章节节奏
+# ═══════════════════════════════════════════════════════════
 with tabs[1]:
+    st.subheader("叙事引擎 — 16 阶段 Dramatica 结构")
+
+    ne = NarrativeEngine()
+
+    stage_data = []
+    for i, stage in enumerate(NARRATIVE_STAGES):
+        prompt = ne.get_stage_prompt(stage)
+        stage_data.append({"序号": i + 1, "阶段名称": stage, "写作提示": prompt[:80] + "..."})
+
+    st.dataframe(stage_data, use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.subheader("章节节奏规划")
+
+    ch = st.number_input("当前章节号", 1, 100, 5)
+    total = st.number_input("总章节数", 1, 100, 20)
+
+    beats = ne.get_required_beats(ch, total)
+    for b in beats:
+        st.info(f"**{b}**：{ne.get_stage_prompt(b)}")
+
+    st.divider()
+    st.subheader("前 8 章进度模拟")
+    sim_cols = st.columns(4)
+    for i in range(8):
+        with sim_cols[i % 4]:
+            b = ne.get_required_beats(i + 1, 20)
+            st.caption(f"第 {i+1} 章")
+            st.write("、".join(b))
+
+
+# ═══════════════════════════════════════════════════════════
+# Tab 3：生成章节 — 调用 7-agent 管线 API
+# ═══════════════════════════════════════════════════════════
+with tabs[2]:
+    st.subheader("✍️ 生成章节 — 7 Agent 管线")
+
+    # 从故事设定 Tab 获取角色列表
+    char_names = [c["name"] for c in st.session_state.get("characters", [])]
+
+    with st.container(border=True):
+        st.caption("章节参数")
+        col1, col2 = st.columns(2)
+        with col1:
+            gen_chapter = st.number_input("章节号", 1, 100, 1)
+        with col2:
+            gen_title = st.text_input("章节标题（可选）", "第一章 星空异象")
+
+        gen_pov = st.selectbox("叙事视角（POV 角色）", char_names if char_names else ["林夜"],
+                               help="选择此章节的视角角色。可在「故事设定」Tab 中添加更多角色。")
+        gen_outline = st.text_area("章节大纲",
+                                   "林夜在天文台值夜班时发现星空异常，星星像呼吸一样明灭。",
+                                   height=100)
+        gen_context = st.text_area("世界观上下文（可选）",
+                                   "现代都市背景，天文台位于城郊山上。主角林夜是天文台观测员。",
+                                   height=80)
+
+    # 检查 API 服务器是否可用
+    import httpx
+
+    server_ok = False
+    server_url = "http://localhost:8000"
+    try:
+        r = httpx.get(f"{server_url}/api/health", timeout=2)
+        server_ok = r.status_code == 200
+    except Exception:
+        server_ok = False
+
+    if not server_ok:
+        st.warning(
+            "⚠️ API 服务器未运行。生成章节需要先启动后端服务器并配置 LLM API Key。\n\n"
+            "**启动方法：**\n"
+            "```\n"
+            "cd backend\n"
+            "python -m app.cli server\n"
+            "```\n\n"
+            "**配置 API Key：**\n"
+            "在项目根目录创建 `.env` 文件，填入：\n"
+            "```\n"
+            "LLM_PROVIDER=openai|deepseek|anthropic\n"
+            "OPENAI_API_KEY=sk-xxx\n"
+            "```\n\n"
+            "配置完成后刷新此页面即可启用生成功能。"
+        )
+
+    if st.button("开始生成", use_container_width=True, type="primary", disabled=not server_ok):
+        if not server_ok:
+            st.error("API 服务器不可用，请先启动服务器。")
+        else:
+            with st.spinner("7 Agent 管线运行中：规划 → 架构 → 写作 → 审核 → 修订 → 观察 → 总结..."):
+                try:
+                    resp = httpx.post(
+                        f"{server_url}/api/generate/chapter",
+                        json={
+                            "project_id": "streamlit_ui",
+                            "chapter_number": gen_chapter,
+                            "outline": gen_outline,
+                            "world_context": gen_context,
+                            "pov_character": gen_pov,
+                            "prior_summary": "",
+                        },
+                        timeout=300,
+                    )
+                    data = resp.json()
+                except httpx.TimeoutException:
+                    st.error("生成超时（5 分钟），管线可能仍在运行，请检查服务器日志。")
+                    data = None
+                except Exception as e:
+                    st.error(f"请求失败：{e}")
+                    data = None
+
+            if data and data.get("success"):
+                st.success(f"✓ 第 {data['chapter_number']} 章生成成功！")
+
+                # 显示生成内容
+                with st.container(border=True):
+                    st.markdown(data.get("content", "（内容为空）"))
+
+                # 显示各阶段状态
+                phases = data.get("phases", [])
+                if phases:
+                    st.subheader("管线阶段状态")
+                    phase_data = []
+                    for p in phases:
+                        phase_data.append({
+                            "阶段": p.get("name", ""),
+                            "状态": "✅" if p.get("success") else "❌",
+                            "耗时(秒)": round(p.get("duration_ms", 0) / 1000, 1),
+                            "错误": p.get("error", "") or "-",
+                        })
+                    st.dataframe(phase_data, use_container_width=True, hide_index=True)
+
+                if data.get("passed_audit"):
+                    st.success("✓ 章节通过质量审核")
+                else:
+                    st.warning("⚠ 章节未通过质量审核，请在「质量审核」Tab 中手动审核")
+
+            elif data:
+                st.error(f"生成失败：{data.get('error', '未知错误')}")
+    elif not server_ok:
+        st.info("请先启动 API 服务器后再点击生成。")
+
+
+# ═══════════════════════════════════════════════════════════
+# Tab 4：33 维质量审核
+# ═══════════════════════════════════════════════════════════
+with tabs[3]:
     st.subheader("33 维质量审核")
 
     sample_audit = "突然间，全场震惊。然而，他不由得感到一阵寒意。仿佛世界在旋转。"
@@ -150,8 +305,10 @@ with tabs[1]:
             st.progress(min(score, 1.0), text=f"{dim}：{score:.2f}")
 
 
-# ── Tab 3：去 AI 检测 ─────────────────────────────────────────
-with tabs[2]:
+# ═══════════════════════════════════════════════════════════
+# Tab 5：去 AI 检测
+# ═══════════════════════════════════════════════════════════
+with tabs[4]:
     st.subheader("去 AI 化 — AI 写作痕迹检测")
 
     sample_deai = "首先，让我们探讨这个问题。其次，我们需要分析数据。最后，值得注意的是结论。"
@@ -177,8 +334,10 @@ with tabs[2]:
                 st.write(f"- **{i.pattern}**（{i.severity}）：{i.suggestion}")
 
 
-# ── Tab 4：后写作校验 ─────────────────────────────────────────
-with tabs[3]:
+# ═══════════════════════════════════════════════════════════
+# Tab 6：后写作校验
+# ═══════════════════════════════════════════════════════════
+with tabs[5]:
     st.subheader("后写作校验")
 
     sample_v = "林夜猛然抬头，星空在头顶旋转。不，不是旋转——它们在移动，像是有生命的。"
@@ -208,8 +367,10 @@ with tabs[3]:
                 st.warning(w)
 
 
-# ── Tab 5：质量指标 ───────────────────────────────────────────
-with tabs[4]:
+# ═══════════════════════════════════════════════════════════
+# Tab 7：质量指标
+# ═══════════════════════════════════════════════════════════
+with tabs[6]:
     st.subheader("质量指标计算器")
 
     c1, c2, c3 = st.columns(3)
@@ -231,43 +392,10 @@ with tabs[4]:
     st.json(qm.to_dict())
 
 
-# ── Tab 6：叙事引擎 ──────────────────────────────────────────
-with tabs[5]:
-    st.subheader("叙事引擎 — 16 阶段 Dramatica 结构")
-
-    ne = NarrativeEngine()
-
-    # 阶段表格
-    stage_data = []
-    for i, stage in enumerate(NARRATIVE_STAGES):
-        prompt = ne.get_stage_prompt(stage)
-        stage_data.append({"序号": i + 1, "阶段名称": stage, "写作提示": prompt[:80] + "..."})
-
-    st.dataframe(stage_data, use_container_width=True, hide_index=True)
-
-    st.divider()
-    st.subheader("章节节奏规划")
-
-    ch = st.number_input("当前章节号", 1, 100, 5)
-    total = st.number_input("总章节数", 1, 100, 20)
-
-    beats = ne.get_required_beats(ch, total)
-    for b in beats:
-        st.info(f"**{b}**：{ne.get_stage_prompt(b)}")
-
-    # 进度模拟
-    st.divider()
-    st.subheader("前 8 章进度模拟")
-    sim_cols = st.columns(4)
-    for i in range(8):
-        with sim_cols[i % 4]:
-            b = ne.get_required_beats(i + 1, 20)
-            st.caption(f"第 {i+1} 章")
-            st.write("、".join(b))
-
-
-# ── Tab 7：DSL 解析 ──────────────────────────────────────────
-with tabs[6]:
+# ═══════════════════════════════════════════════════════════
+# Tab 8：DSL 解析
+# ═══════════════════════════════════════════════════════════
+with tabs[7]:
     st.subheader("@DSL 模板解析器")
 
     dsl_input = st.text_input("DSL 模板", "@title met @type:character at @self")
@@ -292,8 +420,10 @@ with tabs[6]:
             st.write(f"- `{m.raw}` → 通过 {m.qtype} 解析")
 
 
-# ── Tab 8：LLM 提供商 ─────────────────────────────────────────
-with tabs[7]:
+# ═══════════════════════════════════════════════════════════
+# Tab 9：LLM 提供商
+# ═══════════════════════════════════════════════════════════
+with tabs[8]:
     st.subheader("LLM 提供商一览")
 
     pdata = []
@@ -315,11 +445,14 @@ with tabs[7]:
             "OPENAI_API_KEY=sk-...\n"
             "ANTHROPIC_API_KEY=sk-ant-...\n"
             "DEEPSEEK_API_KEY=sk-...", language="bash")
-    st.info("在项目根目录的 .env 文件中设置以上环境变量即可切换 LLM 提供商。")
+    st.info("在项目根目录的 .env 文件中设置以上环境变量即可切换 LLM 提供商。\n"
+            "配置完成后启动 API 服务器，即可在「生成章节」Tab 中使用 7-Agent 管线。")
 
 
-# ── Tab 9：状态追踪 ──────────────────────────────────────────
-with tabs[8]:
+# ═══════════════════════════════════════════════════════════
+# Tab 10：状态追踪
+# ═══════════════════════════════════════════════════════════
+with tabs[9]:
     st.subheader("状态变更追踪")
 
     if "delta_store" not in st.session_state:
@@ -365,4 +498,4 @@ with tabs[8]:
         st.rerun()
 
 
-st.caption("---\nMy Novel Assist v0.2.0 — 基于 Streamlit 构建")
+st.caption("---\nMy Novel Assist v0.2.0 — 工作流：设定 → 规划 → 写作 → 审核 → 发布")
