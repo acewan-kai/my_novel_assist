@@ -14,6 +14,46 @@ NARRATIVE_STAGES = [
     "denouement", "resolution"
 ]
 
+# 中文阶段名称
+STAGE_NAMES_CN: dict[str, str] = {
+    "setup": "开场",
+    "inciting_incident": "激励事件",
+    "response": "回应",
+    "pursuit": "追逐",
+    "ally_intro": "盟友登场",
+    "antagonist_rise": "对手崛起",
+    "first_turning_point": "第一次转折",
+    "midpoint": "中点",
+    "crisis_buildup": "危机升级",
+    "betrayal": "背叛",
+    "dark_night": "至暗时刻",
+    "second_turning_point": "第二次转折",
+    "final_preparations": "最终准备",
+    "climax": "高潮",
+    "denouement": "落幕",
+    "resolution": "结局",
+}
+
+# 中文阶段写作提示
+STAGE_PROMPTS_CN: dict[str, str] = {
+    "setup": "建立世界观、基调和主角的日常生活",
+    "inciting_incident": "引入打破平静的事件",
+    "response": "展现主角的初始反应和犹豫",
+    "pursuit": "主角投入新的方向",
+    "ally_intro": "引入关键盟友，建立关系",
+    "antagonist_rise": "展示反派的势力和风险",
+    "first_turning_point": "第一次重大挫折或发现改变一切",
+    "midpoint": "重大事件将被动转为主动",
+    "crisis_buildup": "紧张升级，压力增大",
+    "betrayal": "信任破裂，关键关系断裂",
+    "dark_night": "最低谷，希望渺茫",
+    "second_turning_point": "新信息或决心带来转机",
+    "final_preparations": "主角为最后对决做准备",
+    "climax": "与核心冲突的终极对抗",
+    "denouement": "高潮的余波，收束线索",
+    "resolution": "新常态确立，故事收尾",
+}
+
 
 @dataclass
 class StoryState:
@@ -88,6 +128,27 @@ class NarrativeEngine:
             "resolution": "The new normal is established; story closes.",
         }
         return prompts.get(stage, "Continue the narrative progression.")
+
+    def get_stage_name_cn(self, stage: str) -> str:
+        """返回阶段的中文名称。"""
+        return STAGE_NAMES_CN.get(stage, stage)
+
+    def get_stage_prompt_cn(self, stage: str) -> str:
+        """返回阶段的中文写作提示。"""
+        return STAGE_PROMPTS_CN.get(stage, self.get_stage_prompt(stage))
+
+    def get_required_beats_cn(self, chapter: int, total_chapters: int) -> list[str]:
+        """返回中文阶段名称的节拍列表。"""
+        return [self.get_stage_name_cn(b) for b in self.get_required_beats(chapter, total_chapters)]
+
+    def get_beats_info_cn(self, chapter: int, total_chapters: int) -> str:
+        """返回中文阶段信息字符串，含提示。"""
+        parts = []
+        for b in self.get_required_beats(chapter, total_chapters):
+            cn = self.get_stage_name_cn(b)
+            prompt = self.get_stage_prompt_cn(b)
+            parts.append(f"{cn}：{prompt}")
+        return " → ".join(parts)
 
     def reset(self):
         self.state = StoryState()

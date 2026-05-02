@@ -117,21 +117,33 @@ with tabs[0]:
 
     with st.container(border=True):
         st.caption("添加新角色")
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         with c1:
             new_name = st.text_input("角色名称", key="char_name")
         with c2:
             new_role = st.text_input("角色定位", key="char_role",
                                      placeholder="主角 / 反派 / 盟友 / 导师")
+        c3, c4 = st.columns(2)
         with c3:
-            new_desc = st.text_input("角色描述", key="char_desc",
-                                     placeholder="外貌、性格、背景等")
+            new_goal = st.text_input("角色目标 (goal)", key="char_goal",
+                                     placeholder="角色想要什么")
+        with c4:
+            new_need = st.text_input("内在需求 (need)", key="char_need",
+                                     placeholder="角色真正需要什么")
+        new_backstory = st.text_area("背景故事 (backstory)", key="char_backstory",
+                                      placeholder="角色的过去经历、动机来源……",
+                                      height=80)
+        new_desc = st.text_input("角色描述", key="char_desc",
+                                 placeholder="外貌、性格等")
 
         if st.button("添加角色", use_container_width=True):
             if new_name.strip():
                 st.session_state.characters.append({
                     "name": new_name.strip(),
                     "role": new_role.strip() or "未指定",
+                    "goal": new_goal.strip(),
+                    "need": new_need.strip(),
+                    "backstory": new_backstory.strip(),
                     "description": new_desc.strip() or "暂无描述",
                 })
                 st.session_state.delta_store.record("characters", "", new_name.strip(), "user")
@@ -213,8 +225,8 @@ with tabs[1]:
 
     stage_data = []
     for i, stage in enumerate(NARRATIVE_STAGES):
-        prompt = ne.get_stage_prompt(stage)
-        stage_data.append({"序号": i + 1, "阶段名称": stage, "写作提示": prompt[:80] + "…"})
+        prompt = ne.get_stage_prompt_cn(stage)
+        stage_data.append({"序号": i + 1, "阶段名称": ne.get_stage_name_cn(stage), "写作提示": prompt[:80] + "…"})
     st.dataframe(stage_data, use_container_width=True, hide_index=True)
 
     st.divider()
@@ -228,10 +240,10 @@ with tabs[1]:
     st.caption(f"全书 {total} 章的叙事节奏分配：")
     beat_preview = []
     for ch_num in range(1, total + 1):
-        beats = ne.get_required_beats(ch_num, total)
+        cn_beats = ne.get_required_beats_cn(ch_num, total)
         beat_preview.append({
             "章节": f"第 {ch_num} 章",
-            "叙事阶段": " → ".join(beats),
+            "叙事阶段": " → ".join(cn_beats),
         })
     st.dataframe(beat_preview, use_container_width=True, hide_index=True)
 
@@ -254,9 +266,9 @@ with tabs[1]:
     sim_cols = st.columns(4)
     for i in range(8):
         with sim_cols[i % 4]:
-            b = ne.get_required_beats(i + 1, 20)
+            cn_b = ne.get_required_beats_cn(i + 1, 20)
             st.caption(f"第 {i+1} 章")
-            st.write("、".join(b))
+            st.write("、".join(cn_b))
 
 
 # ═══════════════════════════════════════════════════════════
@@ -288,16 +300,19 @@ with tabs[2]:
 
         # 显示叙事阶段提示
         chapter_beats = narrative_beats.get(gen_chapter, [])
+        ne = NarrativeEngine()
+        cn_beats = [ne.get_stage_name_cn(b) for b in chapter_beats]
         if chapter_beats:
-            ne = NarrativeEngine()
-            beat_info = " → ".join(chapter_beats)
+            beat_info = " → ".join(cn_beats)
             st.success(f"📈 本章叙事阶段：{beat_info}")
             for b in chapter_beats:
-                st.caption(f"  • {b}：{ne.get_stage_prompt(b)}")
+                cn = ne.get_stage_name_cn(b)
+                prompt = ne.get_stage_prompt_cn(b)
+                st.caption(f"  • {cn}：{prompt}")
 
         gen_outline = st.text_area(
             "章节大纲",
-            value=f"本章叙事阶段：{' → '.join(chapter_beats)}\n\n" if chapter_beats else "",
+            value=f"本章叙事阶段：{' → '.join(cn_beats)}\n\n" if cn_beats else "",
             height=120,
             help="描述本章要发生的情节"
         )
@@ -348,7 +363,7 @@ with tabs[2]:
                         json={
                             "project_id": "streamlit_ui",
                             "chapter_number": gen_chapter,
-                            "outline": gen_outline or f"Chapter {gen_chapter}",
+                            "outline": gen_outline or f"第 {gen_chapter} 章",
                             "world_context": gen_context,
                             "pov_character": gen_pov,
                             "prior_summary": "",
@@ -591,7 +606,7 @@ with tabs[6]:
 with tabs[7]:
     st.subheader("@DSL 模板解析器")
 
-    dsl_input = st.text_input("DSL 模板", "@title met @type:character at @self")
+    dsl_input = st.text_input("DSL 模板（支持 @title、@type:类型、@self 等）", "@title 遇到了 @type:character")
     if dsl_input:
         parser = DSLParser()
         matches = parser.parse(dsl_input)
