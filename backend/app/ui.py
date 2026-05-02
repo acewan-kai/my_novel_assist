@@ -40,6 +40,27 @@ def _init_session_state():
 
 _init_session_state()
 
+# ── LLM 提供者（用于文本导入） ──
+@st.cache_resource
+def _get_import_provider():
+    """创建导入功能用的 LLM 提供者。无 API key 时返回 None（走正则 fallback）。"""
+    from app.config import settings
+    from app.llm import LLMConfig, create_provider
+
+    provider_name = settings.llm_provider.lower()
+    provider_map = {
+        "openai":    ("openai", settings.openai_api_key, settings.openai_base_url),
+        "deepseek":  ("openai", settings.deepseek_api_key, settings.deepseek_base_url),
+        "anthropic": ("anthropic", settings.anthropic_api_key, ""),
+        "ollama":    ("openai", "", settings.ollama_base_url),
+    }
+    ptype, api_key, base_url = provider_map.get(
+        provider_name, ("openai", settings.openai_api_key, settings.openai_base_url)
+    )
+    if not api_key:
+        return None
+    return create_provider(LLMConfig(provider=ptype, api_key=api_key, base_url=base_url))
+
 st.title("📖 My Novel Assist")
 st.caption("AI 辅助小说写作工具 —— 从灵感到成稿的全流程支持")
 
@@ -99,7 +120,10 @@ with tabs[0]:
         if st.button("分析提取", key="import_premise"):
             if import_text.strip():
                 from app.context.import_parser import ImportParser
-                result = ImportParser.extract_premise(import_text)
+                provider = _get_import_provider()
+                parser = ImportParser(provider)
+                with st.spinner("AI 分析中..." if provider else "提取中..."):
+                    result = parser.extract_premise(import_text)
                 st.session_state._premise_import_result = result
                 st.rerun()
             else:
@@ -150,7 +174,10 @@ with tabs[0]:
         if st.button("分析提取角色", key="import_characters"):
             if char_import_text.strip():
                 from app.context.import_parser import ImportParser
-                chars = ImportParser.extract_characters(char_import_text)
+                provider = _get_import_provider()
+                parser = ImportParser(provider)
+                with st.spinner("AI 分析中..." if provider else "提取中..."):
+                    chars = parser.extract_characters(char_import_text)
                 if chars:
                     st.session_state._imported_chars = chars
                     st.success(f"提取到 {len(chars)} 个角色")
