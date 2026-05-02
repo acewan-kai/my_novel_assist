@@ -92,6 +92,34 @@ with tabs[0]:
             for e in errors:
                 st.error(e)
 
+    # ── 导入故事前提 ──
+    with st.expander("📥 从文本导入故事前提"):
+        import_text = st.text_area("粘贴包含故事设定的文本", height=120,
+                                    placeholder="示例：《星穹之下》奇幻小说。讲述一个在天文台工作的青年发现星空是巨大生物的外壳……")
+        if st.button("分析提取", key="import_premise"):
+            if import_text.strip():
+                from app.context.import_parser import ImportParser
+                result = ImportParser.extract_premise(import_text)
+                st.session_state._premise_import_result = result
+                st.rerun()
+            else:
+                st.error("请先粘贴文本")
+
+        if st.session_state.get("_premise_import_result"):
+            result = st.session_state._premise_import_result
+            col_a, col_b = st.columns([1, 3])
+            with col_a:
+                st.metric("标题", result["title"] or "未识别")
+                st.metric("类型", result["genre"] or "未识别")
+            with col_b:
+                st.text_area("提取的梗概", result["logline"], height=80)
+            if st.button("确认导入故事前提", key="confirm_premise"):
+                st.session_state.premise = result
+                st.session_state.delta_store.record("premise.imported", "", result["title"], "user")
+                del st.session_state._premise_import_result
+                st.success("✓ 前提已导入，请核对上方字段")
+                st.rerun()
+
     st.divider()
     st.subheader("角色管理")
 
@@ -114,6 +142,54 @@ with tabs[0]:
             st.rerun()
         else:
             st.info("未能自动提取角色名，请手动添加")
+
+    # ── 从文本导入角色 ──
+    with st.expander("📥 从文本导入角色"):
+        char_import_text = st.text_area("粘贴包含角色描述的文本", height=120,
+                                         placeholder="示例：林夜：天文台观测员，性格内向。主角林夜在星空下发现了异常……")
+        if st.button("分析提取角色", key="import_characters"):
+            if char_import_text.strip():
+                from app.context.import_parser import ImportParser
+                chars = ImportParser.extract_characters(char_import_text)
+                if chars:
+                    st.session_state._imported_chars = chars
+                    st.success(f"提取到 {len(chars)} 个角色")
+                    st.rerun()
+                else:
+                    st.error("未能从文本中识别出角色，请手动添加")
+            else:
+                st.error("请先粘贴文本")
+
+        imported_chars = st.session_state.get("_imported_chars", [])
+        if imported_chars:
+            preview_df = []
+            for i, c in enumerate(imported_chars):
+                preview_df.append({
+                    "序号": i + 1,
+                    "名称": c["name"],
+                    "定位": c["role"],
+                    "目标": c.get("goal", "") or "未提取",
+                    "需求": c.get("need", "") or "未提取",
+                    "描述": (c.get("description", "") or "")[:30] or "无",
+                })
+            st.dataframe(preview_df, use_container_width=True, hide_index=True)
+
+            selected_names = []
+            for c in imported_chars:
+                if st.checkbox(c["name"], value=True, key=f"import_char_{c['name']}"):
+                    selected_names.append(c["name"])
+
+            if st.button("导入选中角色", key="confirm_import_chars"):
+                existing_names = [c["name"] for c in st.session_state.characters]
+                added = 0
+                for c in imported_chars:
+                    if c["name"] in selected_names and c["name"] not in existing_names:
+                        st.session_state.characters.append(c)
+                        st.session_state.delta_store.record("characters.imported", "", c["name"], "user")
+                        added += 1
+                st.session_state._imported_chars = []
+                st.success(f"✓ 已导入 {added} 个角色")
+                st.rerun()
 
     with st.container(border=True):
         st.caption("添加新角色")
