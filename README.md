@@ -94,6 +94,12 @@ cp .env.example .env
 | `GOOGLE_API_KEY` | Google Gemini |
 | `LLM_PROVIDER` | Set to: openai, deepseek, anthropic, google, ollama, custom |
 
+## Usage Guide
+
+For a complete walkthrough with a real case study (from idea to novel), see:
+
+➡ **[docs/usage-guide.md](docs/usage-guide.md)**
+
 ## License
 
 MIT

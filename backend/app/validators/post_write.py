@@ -19,13 +19,23 @@ class PostWriteValidator:
         self.min_words = min_words
         self.max_repeat_sentence = max_repeat_sentence
 
+    @staticmethod
+    def _word_count(text: str) -> int:
+        """Count words, handling both English and Chinese text."""
+        import re
+        if not text.strip():
+            return 0
+        cjk = len(re.findall(r'[一-鿿㐀-䶿豈-﫿]', text))
+        non_cjk = len(text.replace("\n", " ").split())
+        return max(cjk, non_cjk)
+
     def validate(self, text: str, context: dict[str, Any] | None = None) -> ValidationResult:
         errors: list[str] = []
         warnings: list[str] = []
         metrics: dict[str, float] = {}
 
-        # Word count
-        wc = len(text.replace("\n", " ").split())
+        # Word count (handles Chinese + English)
+        wc = self._word_count(text)
         metrics["word_count"] = float(wc)
         if wc < self.min_words:
             errors.append(f"Word count {wc} below minimum {self.min_words}")
