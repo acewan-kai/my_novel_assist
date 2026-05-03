@@ -46,20 +46,45 @@ def _get_import_provider():
     """创建导入功能用的 LLM 提供者。无 API key 时返回 None（走正则 fallback）。"""
     from app.config import settings
     from app.llm import LLMConfig, create_provider
+    from app.llm.provider_bank import get_provider_info
 
     provider_name = settings.llm_provider.lower()
-    provider_map = {
-        "openai":    ("openai", settings.openai_api_key, settings.openai_base_url),
-        "deepseek":  ("openai", settings.deepseek_api_key, settings.deepseek_base_url),
-        "anthropic": ("anthropic", settings.anthropic_api_key, ""),
-        "ollama":    ("openai", "", settings.ollama_base_url),
+
+    # API key 和 base_url 映射
+    api_key_map = {
+        "openai": settings.openai_api_key,
+        "deepseek": settings.deepseek_api_key,
+        "anthropic": settings.anthropic_api_key,
+        "ollama": "",
     }
-    ptype, api_key, base_url = provider_map.get(
-        provider_name, ("openai", settings.openai_api_key, settings.openai_base_url)
-    )
+    base_url_map = {
+        "openai": settings.openai_base_url,
+        "deepseek": settings.deepseek_base_url,
+        "anthropic": "",
+        "ollama": settings.ollama_base_url,
+    }
+
+    # provider type 映射（anthropic/ollama 走原生，其余走 openai-compatible）
+    type_map = {
+        "anthropic": "anthropic",
+        "ollama": "openai",
+    }
+
+    api_key = api_key_map.get(provider_name, settings.openai_api_key)
     if not api_key:
         return None
-    return create_provider(LLMConfig(provider=ptype, api_key=api_key, base_url=base_url))
+
+    ptype = type_map.get(provider_name, "openai")
+    base_url = base_url_map.get(provider_name, "")
+
+    # 从 provider_bank 获取默认模型名（关键！避免硬编码 gpt-4o-mini）
+    pinfo = get_provider_info(provider_name)
+    model = pinfo.default_model if pinfo else "gpt-4o-mini"
+
+    return create_provider(LLMConfig(
+        provider=ptype, model=model,
+        api_key=api_key, base_url=base_url,
+    ))
 
 st.title("📖 My Novel Assist")
 st.caption("AI 辅助小说写作工具 —— 从灵感到成稿的全流程支持")
@@ -120,9 +145,16 @@ with tabs[0]:
         if st.button("分析提取", key="import_premise"):
             if import_text.strip():
                 from app.context.import_parser import ImportParser
+                from app.llm.provider_bank import get_provider_info
+                from app.config import settings
                 provider = _get_import_provider()
                 parser = ImportParser(provider)
-                with st.spinner("AI 分析中..." if provider else "提取中..."):
+                pinfo = get_provider_info(settings.llm_provider.lower())
+                st.session_state._import_status = (
+                    f"🤖 {pinfo.name} ({pinfo.default_model})" if provider and pinfo
+                    else "📄 正则（未配置 AI 或 API key 无效）"
+                )
+                with st.spinner(f"分析中… 模式: {st.session_state._import_status}"):
                     result = parser.extract_premise(import_text)
                 st.session_state._premise_import_result = result
                 st.rerun()
@@ -131,16 +163,19 @@ with tabs[0]:
 
         if st.session_state.get("_premise_import_result"):
             result = st.session_state._premise_import_result
+            _mode = st.session_state.get("_import_status", "")
             col_a, col_b = st.columns([1, 3])
             with col_a:
                 st.metric("标题", result["title"] or "未识别")
                 st.metric("类型", result["genre"] or "未识别")
             with col_b:
                 st.text_area("提取的梗概", result["logline"], height=80)
+            st.caption(f"提取模式：{_mode}")
             if st.button("确认导入故事前提", key="confirm_premise"):
                 st.session_state.premise = result
                 st.session_state.delta_store.record("premise.imported", "", result["title"], "user")
                 del st.session_state._premise_import_result
+                del st.session_state._import_status
                 st.success("✓ 前提已导入，请核对上方字段")
                 st.rerun()
 
@@ -174,12 +209,20 @@ with tabs[0]:
         if st.button("分析提取角色", key="import_characters"):
             if char_import_text.strip():
                 from app.context.import_parser import ImportParser
+                from app.llm.provider_bank import get_provider_info
+                from app.config import settings
                 provider = _get_import_provider()
                 parser = ImportParser(provider)
-                with st.spinner("AI 分析中..." if provider else "提取中..."):
+                pinfo = get_provider_info(settings.llm_provider.lower())
+                mode_str = (
+                    f"🤖 {pinfo.name} ({pinfo.default_model})" if provider and pinfo
+                    else "📄 正则（未配置 AI 或 API key 无效）"
+                )
+                with st.spinner(f"分析中… 模式: {mode_str}"):
                     chars = parser.extract_characters(char_import_text)
                 if chars:
                     st.session_state._imported_chars = chars
+                    st.session_state._char_import_status = mode_str
                     st.success(f"提取到 {len(chars)} 个角色")
                     st.rerun()
                 else:
@@ -189,6 +232,8 @@ with tabs[0]:
 
         imported_chars = st.session_state.get("_imported_chars", [])
         if imported_chars:
+            _mode = st.session_state.get("_char_import_status", "")
+            st.caption(f"提取模式：{_mode}")
             preview_df = []
             for i, c in enumerate(imported_chars):
                 preview_df.append({

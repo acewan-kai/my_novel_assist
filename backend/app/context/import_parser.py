@@ -139,14 +139,18 @@ class ImportParser:
             if raw:
                 parsed = _parse_json_response(raw)
                 if isinstance(parsed, dict):
-                    return {
+                    result = {
                         "title": str(parsed.get("title", "")),
                         "genre": str(parsed.get("genre", "")),
                         "logline": str(parsed.get("logline", "")),
                     }
+                    result["_ai"] = True
+                    return result
 
         # 正则 fallback
-        return self._extract_premise_regex(text)
+        result = self._extract_premise_regex(text)
+        result["_ai"] = False
+        return result
 
     # ── 角色提取 ──────────────────────────────────────────
 
